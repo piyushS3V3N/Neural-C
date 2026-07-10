@@ -1,8 +1,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// GPU Kernel for performing Neural Network Forward Propagation
-// This replaces the nested for-loops in C with massive parallel execution.
+// GEMM Kernel for Batched Forward Propagation
 kernel void forward_pass_layer(
     device const float* inputs [[buffer(0)]],
     device const float* weights [[buffer(1)]],
@@ -11,24 +10,23 @@ kernel void forward_pass_layer(
     constant int& input_size [[buffer(4)]],
     constant int& output_size [[buffer(5)]],
     constant int& use_sigmoid [[buffer(6)]],
-    uint id [[thread_position_in_grid]]
+    constant int& batch_size [[buffer(7)]],
+    uint2 id [[thread_position_in_grid]]
 ) {
-    // Boundary check
-    if ((int)id >= output_size) return;
+    int row = id.x; // Batch Index
+    int col = id.y; // Output Neuron Index
     
-    // Each thread calculates exactly ONE output neuron simultaneously
-    float sum = biases[id];
+    if (row >= batch_size || col >= output_size) return;
     
-    // Perform dot product on this neuron's weights
+    float sum = biases[col];
+    
     for (int i = 0; i < input_size; i++) {
-        sum += inputs[i] * weights[i * output_size + id]; 
+        sum += inputs[row * input_size + i] * weights[i * output_size + col];
     }
     
-    // Apply Activation Function
     if (use_sigmoid == 1) {
-        outputs[id] = 1.0 / (1.0 + exp(-sum));
+        outputs[row * output_size + col] = 1.0 / (1.0 + exp(-sum));
     } else {
-        // LeakyReLU
-        outputs[id] = sum > 0.0 ? sum : 0.01 * sum;
+        outputs[row * output_size + col] = sum > 0.0 ? sum : 0.01 * sum;
     }
 }

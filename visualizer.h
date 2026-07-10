@@ -25,6 +25,7 @@ typedef struct {
     
     // Interaction states
     bool is_trained;
+    int retraining_frames;
     bool custom_mode;
     float custom_inputs[5];
     char typed_name[32];

@@ -33,20 +33,27 @@ int main() {
         state.using_gpu = false;
     }
 
-    // Initialize Deep Neural Network: 5 inputs, 16(L1), 12(L2), 8(L3), 4(L4), 1 output (God Brain!)
-    NeuralNetwork* nn = create_neural_network(5, 16, 12, 8, 4, 1);
+    // Initialize Deep Neural Network: 5 inputs, 16(L1), 12(L2), 8(L3), 4(L4), 1 output
+    NeuralNetwork* nn = create_neural_network(8000, 5, 16, 12, 8, 4, 1);
+    nn->use_gpu = state.using_gpu;
+    if (load_weights(nn, "brain.bin")) {
+        // If brain.bin exists, it means the network is already trained!
+        // We skip the initial 3000-epoch training on dataset.csv.
+        state.epoch = 3000;
+        state.is_trained = true;
+    }
     
     // Dynamically load NLTK-style dataset from CSV
-    float training_inputs[100][5];
-    float training_outputs[100][1];
-    char name_labels[100][32];
+    float training_inputs[8000][5];
+    float training_outputs[8000][1];
+    char name_labels[8000][32];
     int loaded_samples = 0;
     
     FILE *file = fopen("dataset.csv", "r");
     if (file) {
         char line[256];
         fgets(line, sizeof(line), file); // Skip header
-        while (fgets(line, sizeof(line), file) && loaded_samples < 100) {
+        while (fgets(line, sizeof(line), file) && loaded_samples < 8000) {
             char name[32];
             float f1, f2, f3, f4, f5, label;
             if (sscanf(line, "%31[^,],%f,%f,%f,%f,%f,%f", name, &f1, &f2, &f3, &f4, &f5, &label) == 7) {
@@ -77,7 +84,8 @@ int main() {
         if (IsKeyPressed(KEY_LEFT)) { state.test_index = (state.test_index - 1 + state.num_samples) % state.num_samples; state.custom_mode = false; }
         if (IsKeyPressed(KEY_R)) {
             free_neural_network(nn);
-            nn = create_neural_network(5, 16, 12, 8, 4, 1);
+            nn = create_neural_network(8000, 5, 16, 12, 8, 4, 1);
+            nn->use_gpu = state.using_gpu;
             state.epoch = 0;
             state.history_count = 0;
             state.history_index = 0;
@@ -106,6 +114,38 @@ int main() {
 
         // Compute features on-the-fly for typed name
         if (state.custom_mode && state.typed_len > 0) {
+            if (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_ZERO)) {
+                float target[1] = { IsKeyPressed(KEY_ONE) ? 1.0f : 0.0f };
+                
+                // Temporarily disable GPU to run thousands of sequential CPU loops in nanoseconds
+                bool was_gpu = nn->use_gpu;
+                nn->use_gpu = false;
+                
+                int max_retries = 10000;
+                int retries = 0;
+                
+                while (retries < max_retries) {
+                    float out[1];
+                    forward_propagation(nn, state.custom_inputs, out);
+                    
+                    // Reverification: Stop if we are highly confident in the correct direction
+                    bool is_confident = (target[0] > 0.5f) ? (out[0] >= 0.6f) : (out[0] <= 0.4f);
+                    
+                    if (is_confident && retries > 10) { 
+                        // Require at least 10 epochs to ensure it solidly learned it
+                        break;
+                    }
+                    
+                    backward_propagation(nn, state.custom_inputs, target, state.learning_rate);
+                    retries++;
+                }
+                
+                nn->use_gpu = was_gpu; // Restore GPU
+                
+                save_weights(nn, "brain.bin");
+                state.retraining_frames = 60; // Show LIVE RETRAINING for 60 frames (1 second)
+            }
+
             char last = tolower(state.typed_name[state.typed_len - 1]);
             char first = tolower(state.typed_name[0]);
             
@@ -131,24 +171,34 @@ int main() {
 
         // --- 2. TRAINING ---
         if (state.is_training && !state.is_trained) {
+            nn->use_gpu = state.using_gpu; // Phase 3 Complete: Metal GEMM handles Batched Forward Pass!
             for (int e = 0; e < 20; e++) {
                 float total_loss = 0.0f;
+                
+                float *flat_inputs = (float *)state.training_inputs;
+                float *flat_targets = (float *)state.training_outputs;
+                float batch_outputs[8000]; // 32KB on stack
+                
+                // 1. Batched Forward Pass
+                forward_propagation_batch(nn, flat_inputs, batch_outputs, state.num_samples);
+                
+                // 2. Compute Loss
                 for (int i = 0; i < state.num_samples; i++) {
-                    float output[1];
-                    // FORCE CPU for training loop! Dispatching per-sample to GPU is far too slow!
-                    nn->use_gpu = false;
-                    forward_propagation(nn, state.training_inputs[i], output);
-                    
-                    // Binary Cross-Entropy (BCE) Loss Math
-                    float p = output[0];
+                    float p = batch_outputs[i];
                     if (p < 0.0001f) p = 0.0001f;
                     if (p > 0.9999f) p = 0.9999f;
-                    float bce_error = -(state.training_outputs[i][0] * logf(p) + (1.0f - state.training_outputs[i][0]) * logf(1.0f - p));
-                    total_loss += bce_error;
-                    
-                    backward_propagation(nn, state.training_inputs[i], state.training_outputs[i], state.learning_rate);
+                    total_loss += -(flat_targets[i] * logf(p) + (1.0f - flat_targets[i]) * logf(1.0f - p));
                 }
+                
+                // 3. Batched Backward Pass (Gradient Accumulation + Average)
+                backward_propagation_batch(nn, flat_inputs, flat_targets, state.num_samples, state.learning_rate);
+                
                 state.epoch++;
+                
+                // Learning Rate Decay
+                if (state.epoch % 100 == 0) {
+                    state.learning_rate *= 0.99f;
+                }
                 
                 if (state.epoch % 20 == 0) {
                     float mse = total_loss / (float)state.num_samples;
@@ -165,10 +215,12 @@ int main() {
                     if (state.epoch >= 3000) {
                         state.is_trained = true;
                         state.is_training = false;
+                        save_weights(nn, "brain.bin");
                         break;
                     }
                 }
             }
+            nn->use_gpu = state.using_gpu; // Restore GPU for live sandbox
         }
         
         // --- 3. EVALUATION PASS ---
@@ -179,6 +231,7 @@ int main() {
         forward_propagation(nn, current_input, current_output);
 
         // --- 4. RENDERING ---
+        if (state.retraining_frames > 0) state.retraining_frames--;
         DrawVisualization(nn, &state, current_input, current_output);
     }
 

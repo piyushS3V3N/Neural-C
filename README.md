@@ -27,6 +27,8 @@ Neural-C features a custom multilayer perceptron (MLP) built from scratch in C, 
 - **Metal GPU Backend**: Computations offloaded to macOS GPU for maximum performance.
 - **Real-time Visualization**: Interactive visualization of weights, biases, and loss history using Raylib.
 - **Dynamic Feature Extraction**: Real-time evaluation of inputs directly in the UI.
+- **Persistent Memory**: Network weights are automatically saved to and loaded from `brain.bin`, enabling the model to retain knowledge between runs.
+- **Interactive Live-Training**: Correct the model's predictions on the fly by providing feedback (pressing '1' or '0') inside the UI to instantly trigger targeted backpropagation.
 
 ## Screenshots
 <div align="center">

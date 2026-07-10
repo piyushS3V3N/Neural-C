@@ -11,6 +11,7 @@ typedef struct {
     size_t hidden3_size;
     size_t hidden4_size;
     size_t output_size;
+    size_t max_batch_size;
 
     float *weights_input_hidden1;
     float *weights_hidden1_hidden2;
@@ -34,9 +35,13 @@ typedef struct {
     
 } NeuralNetwork;
 
-NeuralNetwork *create_neural_network(size_t input_size, size_t hidden1_size, size_t hidden2_size, size_t hidden3_size, size_t hidden4_size, size_t output_size);
+NeuralNetwork *create_neural_network(size_t max_batch_size, size_t input_size, size_t hidden1_size, size_t hidden2_size, size_t hidden3_size, size_t hidden4_size, size_t output_size);
 void forward_propagation(NeuralNetwork *nn, const float *input, float *output);
+void forward_propagation_batch(NeuralNetwork *nn, const float *inputs, float *outputs, int batch_size);
 void backward_propagation(NeuralNetwork *nn, const float *input, const float *target, float learning_rate);
+void backward_propagation_batch(NeuralNetwork *nn, const float *inputs, const float *targets, int batch_size, float learning_rate);
 void free_neural_network(NeuralNetwork *nn);
+bool save_weights(NeuralNetwork *nn, const char *filename);
+bool load_weights(NeuralNetwork *nn, const char *filename);
 
 #endif // NEURAL_NETWORK_H

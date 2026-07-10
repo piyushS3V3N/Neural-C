@@ -19,7 +19,8 @@ void metal_forward_layer(const float* inputs,
                          float* outputs, 
                          int input_size, 
                          int output_size,
-                         bool use_sigmoid);
+                         bool use_sigmoid,
+                         int batch_size);
 
 #ifdef __cplusplus
 }

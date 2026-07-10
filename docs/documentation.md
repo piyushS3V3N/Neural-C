@@ -10,25 +10,27 @@ The core neural network includes an optimization layer written in Objective-C an
 
 ## 2. Core Code Components
 
-### `NeuralNetwork.c` / `NeuralNetwork.h`
-- **Purpose**: Contains the pure C implementation of the Deep Neural Network (DNN).
-- **Structure**: It defines a 5-layer MLP (Multi-Layer Perceptron) architecture (Inputs: 5, Hidden Layers: 16, 12, 8, 4, Output: 1).
-- **Functionality**: Handles memory allocation, standard forward propagation (CPU), backward propagation (gradient descent), and binary cross-entropy (BCE) loss calculations.
+### `NeuralNetwork.c` & `NeuralNetwork.h`
+- **Purpose**: Defines the `NeuralNetwork` struct and implements math logic. 
+- **Features**: Includes Batched CPU algorithms (`forward_propagation_batch`, `backward_propagation_batch`) and delegates Apple Metal GEMM dispatch logic for lightning-fast tensor operations.
 
-### `metal_backend.m` / `metal_backend.h` / `shaders.metal`
-- **Purpose**: The GPU acceleration backend.
-- **Functionality**: `metal_backend.m` bridges the C code with Apple's Metal API. `shaders.metal` contains the actual compute shader code (written in MSL - Metal Shading Language) that runs on the GPU to parallelize matrix multiplications for forward propagation.
+### `metal_backend.m` & `shaders.metal`
+- **Purpose**: The GPU tensor engine.
+- **Features**: Converts the sequential math into General Matrix Multiply (GEMM) parallel compute shaders across thousands of cores, caching massive memory matrices to eliminate PCIe bottlenecks.
 
-### `visualizer.c` / `visualizer.h`
+### `visualizer.c` & `visualizer.h`
 - **Purpose**: Handles the graphical rendering of the network's state.
-- **Functionality**: Draws the nodes, connections (colored by weight values), and the loss graph over time to provide a real-time visualization of the learning process.
+- **Features**: Includes the live Sandbox logic, dynamic graphing of the MSE loss, interactive keyboard input, and the **Auto-Verifying Correction Engine** which intelligently forces the network to verify its own predictions during live retraining.
 
 ### `main.c`
 - **Purpose**: The entry point of the application.
-- **Functionality**: Initializes the window, loads data from `dataset.csv`, sets up the Neural Network and the Metal backend, and runs the main application loop. It handles user inputs (e.g., typing text to test the network dynamically) and coordinates the training and rendering loops.
+- **Functionality**: Initializes the window, loads data from `dataset.csv`, sets up the Neural Network and the Metal backend, and runs the main application loop. It handles persistent memory (loading/saving weights to `brain.bin`), manages user inputs (e.g., typing text to test the network, and pressing '1' or '0' for live-training on misclassifications), and coordinates the training and rendering loops.
 
 ### `dataset.csv`
-- **Purpose**: The dataset used to train the neural network.
+- **Purpose**: A comprehensive training dataset generated from the NLTK names corpus (~8000 names).
+
+### `brain.bin`
+- **Purpose**: Binary file storing the network's persistent memory (weights and biases), automatically saved after training or live-correction.
 
 ## 3. Libraries Used
 

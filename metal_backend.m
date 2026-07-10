@@ -51,22 +51,40 @@ const char* get_metal_device_name(void) {
 }
 
 // Submits a matrix multiplication task to the GPU queue
+
+static NSMutableDictionary *bufferCache = nil;
+
+static id<MTLBuffer> get_cached_buffer(const void* ptr, int length, bool copy_data) {
+    if (!bufferCache) bufferCache = [[NSMutableDictionary alloc] init];
+    NSValue *key = [NSValue valueWithPointer:ptr];
+    id<MTLBuffer> buf = [bufferCache objectForKey:key];
+    if (!buf || [buf length] < length) {
+        buf = [device newBufferWithLength:length options:MTLResourceStorageModeShared];
+        [bufferCache setObject:buf forKey:key];
+    }
+    if (copy_data) {
+        memcpy([buf contents], ptr, length);
+    }
+    return buf;
+}
+
 void metal_forward_layer(const float* inputs, 
                          const float* weights, 
                          const float* biases, 
                          float* outputs, 
                          int input_size, 
                          int output_size,
-                         bool use_sigmoid) 
+                         bool use_sigmoid,
+                         int batch_size) 
 {
     @autoreleasepool {
         if (!device) return;
         
-        // 1. Create Buffers (Push memory from CPU RAM to GPU VRAM)
-        id<MTLBuffer> inBuffer = [device newBufferWithBytes:inputs length:input_size * sizeof(float) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> wBuffer = [device newBufferWithBytes:weights length:input_size * output_size * sizeof(float) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> bBuffer = [device newBufferWithBytes:biases length:output_size * sizeof(float) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> outBuffer = [device newBufferWithLength:output_size * sizeof(float) options:MTLResourceStorageModeShared];
+        // 1. Get Cached Buffers (Eliminates massive allocation overhead)
+        id<MTLBuffer> inBuffer = get_cached_buffer(inputs, batch_size * input_size * sizeof(float), true);
+        id<MTLBuffer> wBuffer = get_cached_buffer(weights, input_size * output_size * sizeof(float), true);
+        id<MTLBuffer> bBuffer = get_cached_buffer(biases, output_size * sizeof(float), true);
+        id<MTLBuffer> outBuffer = get_cached_buffer(outputs, batch_size * output_size * sizeof(float), false);
         
         int is_sig = use_sigmoid ? 1 : 0;
         
@@ -82,13 +100,13 @@ void metal_forward_layer(const float* inputs,
         [encoder setBytes:&input_size length:sizeof(int) atIndex:4];
         [encoder setBytes:&output_size length:sizeof(int) atIndex:5];
         [encoder setBytes:&is_sig length:sizeof(int) atIndex:6];
+        [encoder setBytes:&batch_size length:sizeof(int) atIndex:7];
         
         // 3. Dispatch GPU Threads (1 Thread per Output Neuron, fully parallel)
-        MTLSize gridSize = MTLSizeMake(output_size, 1, 1);
-        NSUInteger threadGroupSize = forwardPipeline.maxTotalThreadsPerThreadgroup;
-        if (threadGroupSize > output_size) threadGroupSize = output_size;
-        MTLSize threadgroupSize = MTLSizeMake(threadGroupSize, 1, 1);
-        
+        MTLSize gridSize = MTLSizeMake(batch_size, output_size, 1);
+        NSUInteger w = forwardPipeline.threadExecutionWidth;
+        NSUInteger h = forwardPipeline.maxTotalThreadsPerThreadgroup / w;
+        MTLSize threadgroupSize = MTLSizeMake(w, h, 1);
         [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadgroupSize];
         [encoder endEncoding];
         
@@ -97,6 +115,6 @@ void metal_forward_layer(const float* inputs,
         [commandBuffer waitUntilCompleted];
         
         // 5. Pull results back from GPU VRAM to CPU RAM
-        memcpy(outputs, [outBuffer contents], output_size * sizeof(float));
+        memcpy(outputs, [outBuffer contents], batch_size * output_size * sizeof(float));
     }
 }

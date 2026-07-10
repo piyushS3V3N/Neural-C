@@ -137,7 +137,9 @@ void DrawVisualization(NeuralNetwork* nn, AppState* state, const float* current_
     DrawLine(uiX, 0, uiX, state->screenHeight, COL_BORDER);
     
     DrawTextSmooth(state->mainFont, "> DEEP NEURAL NETWORK", uiX + 20, 30, 18, COL_TEXT);
-    if (state->is_trained) {
+    if (state->retraining_frames > 0) {
+        DrawTextSmooth(state->mainFont, ">>> LIVE RETRAINING... <<<", uiX + 20, 65, 16, COL_ACTIVATE);
+    } else if (state->is_trained) {
         DrawTextSmooth(state->mainFont, ">>> SYSTEM FULLY TRAINED <<<", uiX + 20, 65, 16, COL_POS);
     } else {
         Color statusColor = state->is_training ? COL_ACTIVATE : COL_NEG;
