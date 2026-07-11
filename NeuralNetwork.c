@@ -290,6 +290,30 @@ void forward_propagation_batch(NeuralNetwork* nn, const float* inputs, float* ou
 void backward_propagation_batch(NeuralNetwork *nn, const float *inputs, const float *targets, int batch_size, float learning_rate) {
     if (batch_size > nn->max_batch_size) batch_size = nn->max_batch_size;
     
+    if (nn->use_gpu) {
+        float *delta_out = malloc(batch_size * nn->output_size * sizeof(float));
+        float *delta_h4 = malloc(batch_size * nn->hidden4_size * sizeof(float));
+        float *delta_h3 = malloc(batch_size * nn->hidden3_size * sizeof(float));
+        float *delta_h2 = malloc(batch_size * nn->hidden2_size * sizeof(float));
+        float *delta_h1 = malloc(batch_size * nn->hidden1_size * sizeof(float));
+
+        metal_backward_output_deltas(nn->output_activations, targets, delta_out, nn->output_size, batch_size);
+        
+        metal_backward_hidden_deltas(delta_out, nn->weights_hidden4_output, nn->hidden4_activations, delta_h4, nn->hidden4_size, nn->output_size, batch_size);
+        metal_backward_hidden_deltas(delta_h4, nn->weights_hidden3_hidden4, nn->hidden3_activations, delta_h3, nn->hidden3_size, nn->hidden4_size, batch_size);
+        metal_backward_hidden_deltas(delta_h3, nn->weights_hidden2_hidden3, nn->hidden2_activations, delta_h2, nn->hidden2_size, nn->hidden3_size, batch_size);
+        metal_backward_hidden_deltas(delta_h2, nn->weights_hidden1_hidden2, nn->hidden1_activations, delta_h1, nn->hidden1_size, nn->hidden2_size, batch_size);
+
+        metal_backward_update_weights(delta_out, nn->hidden4_activations, nn->weights_hidden4_output, nn->bias_output, nn->hidden4_size, nn->output_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h4, nn->hidden3_activations, nn->weights_hidden3_hidden4, nn->bias_hidden4, nn->hidden3_size, nn->hidden4_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h3, nn->hidden2_activations, nn->weights_hidden2_hidden3, nn->bias_hidden3, nn->hidden2_size, nn->hidden3_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h2, nn->hidden1_activations, nn->weights_hidden1_hidden2, nn->bias_hidden2, nn->hidden1_size, nn->hidden2_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h1, inputs, nn->weights_input_hidden1, nn->bias_hidden1, nn->input_size, nn->hidden1_size, batch_size, learning_rate);
+
+        free(delta_out); free(delta_h4); free(delta_h3); free(delta_h2); free(delta_h1);
+        return;
+    }
+    
     // Allocate Gradients
     float *grad_w_out = calloc(nn->hidden4_size * nn->output_size, sizeof(float));
     float *grad_b_out = calloc(nn->output_size, sizeof(float));

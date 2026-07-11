@@ -22,6 +22,32 @@ void metal_forward_layer(const float* inputs,
                          bool use_sigmoid,
                          int batch_size);
 
+// Backward Pass: Compute Output Deltas
+void metal_backward_output_deltas(const float* out,
+                                  const float* target,
+                                  float* delta_out,
+                                  int output_size,
+                                  int batch_size);
+
+// Backward Pass: Compute Hidden Deltas
+void metal_backward_hidden_deltas(const float* delta_next,
+                                  const float* weights_next,
+                                  const float* activations,
+                                  float* delta_curr,
+                                  int curr_size,
+                                  int next_size,
+                                  int batch_size);
+
+// Backward Pass: Update Weights and Biases
+void metal_backward_update_weights(const float* delta,
+                                   const float* prev_activations,
+                                   float* weights,
+                                   float* biases,
+                                   int prev_size,
+                                   int curr_size,
+                                   int batch_size,
+                                   float learning_rate);
+
 #ifdef __cplusplus
 }
 #endif
