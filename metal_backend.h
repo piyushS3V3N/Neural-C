@@ -38,6 +38,14 @@ void metal_backward_hidden_deltas(const float* delta_next,
                                   int next_size,
                                   int batch_size);
 
+// Backward Pass: Compute Input Deltas (no activation derivative)
+void metal_backward_input_deltas(const float* delta_next,
+                                 const float* weights_next,
+                                 float* delta_curr,
+                                 int curr_size,
+                                 int next_size,
+                                 int batch_size);
+
 // Backward Pass: Update Weights and Biases
 void metal_backward_update_weights(const float* delta,
                                    const float* prev_activations,

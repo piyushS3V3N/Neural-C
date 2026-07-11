@@ -106,3 +106,26 @@ kernel void backward_update_weights(
         weights[prev_idx * curr_size + curr_idx] -= lr * grad_w;
     }
 }
+
+// Backward Pass: Compute Input Deltas (for GAN Generator backprop)
+kernel void backward_delta_input(
+    device const float* delta_next [[buffer(0)]],
+    device const float* weights_next [[buffer(1)]],
+    device float* delta_curr [[buffer(2)]],
+    constant int& curr_size [[buffer(3)]],
+    constant int& next_size [[buffer(4)]],
+    constant int& batch_size [[buffer(5)]],
+    uint2 id [[thread_position_in_grid]]
+) {
+    int row = id.x; // Batch
+    int col = id.y; // Current Neuron Index (Input)
+    if (row >= batch_size || col >= curr_size) return;
+    
+    float err = 0.0;
+    for (int j = 0; j < next_size; j++) {
+        err += delta_next[row * next_size + j] * weights_next[col * next_size + j];
+    }
+    
+    // No activation derivative for the very first input layer (it's passed to generator)
+    delta_curr[row * curr_size + col] = err;
+}

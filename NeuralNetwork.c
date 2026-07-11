@@ -412,3 +412,137 @@ void backward_propagation_batch(NeuralNetwork *nn, const float *inputs, const fl
     free(grad_w_h1); free(grad_b_h1);
     free(delta_out); free(delta_h4); free(delta_h3); free(delta_h2); free(delta_h1);
 }
+
+void backward_propagation_batch_with_deltas(NeuralNetwork *nn, const float *inputs, const float *delta_out, int batch_size, float learning_rate) {
+    if (batch_size > nn->max_batch_size) batch_size = nn->max_batch_size;
+    
+    if (nn->use_gpu) {
+        float *delta_h4 = malloc(batch_size * nn->hidden4_size * sizeof(float));
+        float *delta_h3 = malloc(batch_size * nn->hidden3_size * sizeof(float));
+        float *delta_h2 = malloc(batch_size * nn->hidden2_size * sizeof(float));
+        float *delta_h1 = malloc(batch_size * nn->hidden1_size * sizeof(float));
+
+        metal_backward_hidden_deltas(delta_out, nn->weights_hidden4_output, nn->hidden4_activations, delta_h4, nn->hidden4_size, nn->output_size, batch_size);
+        metal_backward_hidden_deltas(delta_h4, nn->weights_hidden3_hidden4, nn->hidden3_activations, delta_h3, nn->hidden3_size, nn->hidden4_size, batch_size);
+        metal_backward_hidden_deltas(delta_h3, nn->weights_hidden2_hidden3, nn->hidden2_activations, delta_h2, nn->hidden2_size, nn->hidden3_size, batch_size);
+        metal_backward_hidden_deltas(delta_h2, nn->weights_hidden1_hidden2, nn->hidden1_activations, delta_h1, nn->hidden1_size, nn->hidden2_size, batch_size);
+
+        metal_backward_update_weights(delta_out, nn->hidden4_activations, nn->weights_hidden4_output, nn->bias_output, nn->hidden4_size, nn->output_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h4, nn->hidden3_activations, nn->weights_hidden3_hidden4, nn->bias_hidden4, nn->hidden3_size, nn->hidden4_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h3, nn->hidden2_activations, nn->weights_hidden2_hidden3, nn->bias_hidden3, nn->hidden2_size, nn->hidden3_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h2, nn->hidden1_activations, nn->weights_hidden1_hidden2, nn->bias_hidden2, nn->hidden1_size, nn->hidden2_size, batch_size, learning_rate);
+        metal_backward_update_weights(delta_h1, inputs, nn->weights_input_hidden1, nn->bias_hidden1, nn->input_size, nn->hidden1_size, batch_size, learning_rate);
+
+        free(delta_h4); free(delta_h3); free(delta_h2); free(delta_h1);
+        return;
+    }
+
+    // CPU Implementation
+    float *grad_w_out = calloc(nn->hidden4_size * nn->output_size, sizeof(float));
+    float *grad_b_out = calloc(nn->output_size, sizeof(float));
+    float *grad_w_h4 = calloc(nn->hidden3_size * nn->hidden4_size, sizeof(float));
+    float *grad_b_h4 = calloc(nn->hidden4_size, sizeof(float));
+    float *grad_w_h3 = calloc(nn->hidden2_size * nn->hidden3_size, sizeof(float));
+    float *grad_b_h3 = calloc(nn->hidden3_size, sizeof(float));
+    float *grad_w_h2 = calloc(nn->hidden1_size * nn->hidden2_size, sizeof(float));
+    float *grad_b_h2 = calloc(nn->hidden2_size, sizeof(float));
+    float *grad_w_h1 = calloc(nn->input_size * nn->hidden1_size, sizeof(float));
+    float *grad_b_h1 = calloc(nn->hidden1_size, sizeof(float));
+
+    float *delta_h4 = malloc(batch_size * nn->hidden4_size * sizeof(float));
+    float *delta_h3 = malloc(batch_size * nn->hidden3_size * sizeof(float));
+    float *delta_h2 = malloc(batch_size * nn->hidden2_size * sizeof(float));
+    float *delta_h1 = malloc(batch_size * nn->hidden1_size * sizeof(float));
+
+    for (int b = 0; b < batch_size; b++) {
+        for (size_t i = 0; i < nn->output_size; i++) {
+            grad_b_out[i] += delta_out[b * nn->output_size + i];
+            for (size_t j = 0; j < nn->hidden4_size; j++) {
+                grad_w_out[j * nn->output_size + i] += delta_out[b * nn->output_size + i] * nn->hidden4_activations[b * nn->hidden4_size + j];
+            }
+        }
+
+        for (size_t i = 0; i < nn->hidden4_size; i++) {
+            float err = 0.0f;
+            for (size_t j = 0; j < nn->output_size; j++) err += delta_out[b * nn->output_size + j] * nn->weights_hidden4_output[i * nn->output_size + j];
+            delta_h4[b * nn->hidden4_size + i] = err * leaky_relu_derivative(nn->hidden4_activations[b * nn->hidden4_size + i]);
+            grad_b_h4[i] += delta_h4[b * nn->hidden4_size + i];
+            for (size_t j = 0; j < nn->hidden3_size; j++) {
+                grad_w_h4[j * nn->hidden4_size + i] += delta_h4[b * nn->hidden4_size + i] * nn->hidden3_activations[b * nn->hidden3_size + j];
+            }
+        }
+
+        for (size_t i = 0; i < nn->hidden3_size; i++) {
+            float err = 0.0f;
+            for (size_t j = 0; j < nn->hidden4_size; j++) err += delta_h4[b * nn->hidden4_size + j] * nn->weights_hidden3_hidden4[i * nn->hidden4_size + j];
+            delta_h3[b * nn->hidden3_size + i] = err * leaky_relu_derivative(nn->hidden3_activations[b * nn->hidden3_size + i]);
+            grad_b_h3[i] += delta_h3[b * nn->hidden3_size + i];
+            for (size_t j = 0; j < nn->hidden2_size; j++) {
+                grad_w_h3[j * nn->hidden3_size + i] += delta_h3[b * nn->hidden3_size + i] * nn->hidden2_activations[b * nn->hidden2_size + j];
+            }
+        }
+
+        for (size_t i = 0; i < nn->hidden2_size; i++) {
+            float err = 0.0f;
+            for (size_t j = 0; j < nn->hidden3_size; j++) err += delta_h3[b * nn->hidden3_size + j] * nn->weights_hidden2_hidden3[i * nn->hidden3_size + j];
+            delta_h2[b * nn->hidden2_size + i] = err * leaky_relu_derivative(nn->hidden2_activations[b * nn->hidden2_size + i]);
+            grad_b_h2[i] += delta_h2[b * nn->hidden2_size + i];
+            for (size_t j = 0; j < nn->hidden1_size; j++) {
+                grad_w_h2[j * nn->hidden2_size + i] += delta_h2[b * nn->hidden2_size + i] * nn->hidden1_activations[b * nn->hidden1_size + j];
+            }
+        }
+
+        for (size_t i = 0; i < nn->hidden1_size; i++) {
+            float err = 0.0f;
+            for (size_t j = 0; j < nn->hidden2_size; j++) err += delta_h2[b * nn->hidden2_size + j] * nn->weights_hidden1_hidden2[i * nn->hidden2_size + j];
+            delta_h1[b * nn->hidden1_size + i] = err * leaky_relu_derivative(nn->hidden1_activations[b * nn->hidden1_size + i]);
+            grad_b_h1[i] += delta_h1[b * nn->hidden1_size + i];
+            for (size_t j = 0; j < nn->input_size; j++) {
+                grad_w_h1[j * nn->hidden1_size + i] += delta_h1[b * nn->hidden1_size + i] * inputs[b * nn->input_size + j];
+            }
+        }
+    }
+
+    float lr = learning_rate / (float)batch_size;
+    
+    for (size_t i = 0; i < nn->input_size * nn->hidden1_size; i++) nn->weights_input_hidden1[i] -= lr * grad_w_h1[i];
+    for (size_t i = 0; i < nn->hidden1_size; i++) nn->bias_hidden1[i] -= lr * grad_b_h1[i];
+    
+    for (size_t i = 0; i < nn->hidden1_size * nn->hidden2_size; i++) nn->weights_hidden1_hidden2[i] -= lr * grad_w_h2[i];
+    for (size_t i = 0; i < nn->hidden2_size; i++) nn->bias_hidden2[i] -= lr * grad_b_h2[i];
+    
+    for (size_t i = 0; i < nn->hidden2_size * nn->hidden3_size; i++) nn->weights_hidden2_hidden3[i] -= lr * grad_w_h3[i];
+    for (size_t i = 0; i < nn->hidden3_size; i++) nn->bias_hidden3[i] -= lr * grad_b_h3[i];
+    
+    for (size_t i = 0; i < nn->hidden3_size * nn->hidden4_size; i++) nn->weights_hidden3_hidden4[i] -= lr * grad_w_h4[i];
+    for (size_t i = 0; i < nn->hidden4_size; i++) nn->bias_hidden4[i] -= lr * grad_b_h4[i];
+    
+    for (size_t i = 0; i < nn->hidden4_size * nn->output_size; i++) nn->weights_hidden4_output[i] -= lr * grad_w_out[i];
+    for (size_t i = 0; i < nn->output_size; i++) nn->bias_output[i] -= lr * grad_b_out[i];
+
+    free(grad_w_out); free(grad_b_out);
+    free(grad_w_h4); free(grad_b_h4);
+    free(grad_w_h3); free(grad_b_h3);
+    free(grad_w_h2); free(grad_b_h2);
+    free(grad_w_h1); free(grad_b_h1);
+    free(delta_h4); free(delta_h3); free(delta_h2); free(delta_h1);
+}
+
+void get_input_gradients_batch(NeuralNetwork *nn, const float *delta_out, float *delta_in, int batch_size) {
+    if (batch_size > nn->max_batch_size) batch_size = nn->max_batch_size;
+    if (nn->use_gpu) {
+        float *delta_h4 = malloc(batch_size * nn->hidden4_size * sizeof(float));
+        float *delta_h3 = malloc(batch_size * nn->hidden3_size * sizeof(float));
+        float *delta_h2 = malloc(batch_size * nn->hidden2_size * sizeof(float));
+        float *delta_h1 = malloc(batch_size * nn->hidden1_size * sizeof(float));
+        
+        metal_backward_hidden_deltas(delta_out, nn->weights_hidden4_output, nn->hidden4_activations, delta_h4, nn->hidden4_size, nn->output_size, batch_size);
+        metal_backward_hidden_deltas(delta_h4, nn->weights_hidden3_hidden4, nn->hidden3_activations, delta_h3, nn->hidden3_size, nn->hidden4_size, batch_size);
+        metal_backward_hidden_deltas(delta_h3, nn->weights_hidden2_hidden3, nn->hidden2_activations, delta_h2, nn->hidden2_size, nn->hidden3_size, batch_size);
+        metal_backward_hidden_deltas(delta_h2, nn->weights_hidden1_hidden2, nn->hidden1_activations, delta_h1, nn->hidden1_size, nn->hidden2_size, batch_size);
+        
+        metal_backward_input_deltas(delta_h1, nn->weights_input_hidden1, delta_in, nn->input_size, nn->hidden1_size, batch_size);
+        
+        free(delta_h4); free(delta_h3); free(delta_h2); free(delta_h1);
+    }
+}

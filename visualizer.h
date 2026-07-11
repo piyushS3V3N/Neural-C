@@ -34,6 +34,7 @@ typedef struct {
     float initial_loss;
     bool using_gpu;
     char compute_device_name[64];
+    bool viewing_discriminator;
     
     int screenWidth;
     int screenHeight;
@@ -43,6 +44,6 @@ typedef struct {
 
 Color GetWeightColor(float weight);
 void DrawLossGraph(Font font, AppState* state, int uiX);
-void DrawVisualization(NeuralNetwork* nn, AppState* state, const float* current_input, const float* current_output);
+void DrawVisualization(NeuralNetwork* generator, NeuralNetwork* discriminator, AppState* state, const float* current_input_g, const float* current_output_g, const float* current_input_d, const float* current_output_d);
 
 #endif // VISUALIZER_H

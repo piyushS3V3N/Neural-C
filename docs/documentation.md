@@ -12,19 +12,19 @@ The core neural network includes an optimization layer written in Objective-C an
 
 ### `NeuralNetwork.c` & `NeuralNetwork.h`
 - **Purpose**: Defines the `NeuralNetwork` struct and implements math logic. 
-- **Features**: Includes Batched CPU algorithms (`forward_propagation_batch`, `backward_propagation_batch`) and delegates Apple Metal GEMM dispatch logic for lightning-fast tensor operations.
+- **Features**: Includes Batched CPU algorithms and delegates Apple Metal GEMM dispatch logic for lightning-fast tensor operations (both forward and backward passes).
 
 ### `metal_backend.m` & `shaders.metal`
 - **Purpose**: The GPU tensor engine.
-- **Features**: Converts the sequential math into General Matrix Multiply (GEMM) parallel compute shaders across thousands of cores, caching massive memory matrices to eliminate PCIe bottlenecks.
+- **Features**: Converts the sequential math into General Matrix Multiply (GEMM) parallel compute shaders across thousands of cores for both Forward Propagation and Backpropagation (including weight updates).
 
 ### `visualizer.c` & `visualizer.h`
-- **Purpose**: Handles the graphical rendering of the network's state.
-- **Features**: Includes the live Sandbox logic, dynamic graphing of the MSE loss, interactive keyboard input, and the **Auto-Verifying Correction Engine** which intelligently forces the network to verify its own predictions during live retraining.
+- **Purpose**: Handles the graphical rendering of the GAN network state.
+- **Features**: Draws both the Generator and Discriminator side-by-side with real-time bridging connections. Shows live graphing of the Discriminator loss.
 
 ### `main.c`
-- **Purpose**: The entry point of the application.
-- **Functionality**: Initializes the window, loads data from `dataset.csv`, sets up the Neural Network and the Metal backend, and runs the main application loop. It handles persistent memory (loading/saving weights to `brain.bin`), manages user inputs (e.g., typing text to test the network, and pressing '1' or '0' for live-training on misclassifications), and coordinates the training and rendering loops.
+- **Purpose**: The entry point of the application and the GAN training loop.
+- **Functionality**: Initializes the window, loads data from `dataset.csv`, sets up the two Neural Networks (Generator and Discriminator), and runs the adversarial training loop. It handles rendering loops, GPU synchronization, and persistent memory (saving/loading weights to `generator.bin` and `discriminator.bin`).
 
 ### `dataset.csv`
 - **Purpose**: A comprehensive training dataset generated from the NLTK names corpus (~8000 names).

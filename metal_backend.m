@@ -8,6 +8,7 @@ static id<MTLCommandQueue> commandQueue = nil;
 static id<MTLComputePipelineState> forwardPipeline = nil;
 static id<MTLComputePipelineState> backwardOutputPipeline = nil;
 static id<MTLComputePipelineState> backwardHiddenPipeline = nil;
+static id<MTLComputePipelineState> backwardInputPipeline = nil;
 static id<MTLComputePipelineState> backwardUpdatePipeline = nil;
 
 bool init_metal_engine(void) {
@@ -55,6 +56,13 @@ bool init_metal_engine(void) {
     backwardHiddenPipeline = [device newComputePipelineStateWithFunction:backwardHiddenFunction error:&error];
     if (!backwardHiddenPipeline) {
         printf("[METAL] ERROR: Failed to create backward hidden compute pipeline state.\n");
+        return false;
+    }
+    
+    id<MTLFunction> backwardInputFunction = [library newFunctionWithName:@"backward_delta_input"];
+    backwardInputPipeline = [device newComputePipelineStateWithFunction:backwardInputFunction error:&error];
+    if (!backwardInputPipeline) {
+        printf("[METAL] ERROR: Failed to create backward input compute pipeline state.\n");
         return false;
     }
     
@@ -211,6 +219,45 @@ void metal_backward_hidden_deltas(const float* delta_next,
         MTLSize gridSize = MTLSizeMake(batch_size, curr_size, 1);
         NSUInteger w = backwardHiddenPipeline.threadExecutionWidth;
         NSUInteger h = backwardHiddenPipeline.maxTotalThreadsPerThreadgroup / w;
+        MTLSize threadgroupSize = MTLSizeMake(w, h, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadgroupSize];
+        [encoder endEncoding];
+        
+        [commandBuffer commit];
+        [commandBuffer waitUntilCompleted];
+        
+        memcpy(delta_curr, [dCurrBuf contents], batch_size * curr_size * sizeof(float));
+    }
+}
+
+void metal_backward_input_deltas(const float* delta_next,
+                                 const float* weights_next,
+                                 float* delta_curr,
+                                 int curr_size,
+                                 int next_size,
+                                 int batch_size) 
+{
+    @autoreleasepool {
+        if (!device) return;
+        
+        id<MTLBuffer> dNextBuf = get_cached_buffer(delta_next, batch_size * next_size * sizeof(float), true);
+        id<MTLBuffer> wNextBuf = get_cached_buffer(weights_next, curr_size * next_size * sizeof(float), true);
+        id<MTLBuffer> dCurrBuf = get_cached_buffer(delta_curr, batch_size * curr_size * sizeof(float), false);
+        
+        id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoder];
+        
+        [encoder setComputePipelineState:backwardInputPipeline];
+        [encoder setBuffer:dNextBuf offset:0 atIndex:0];
+        [encoder setBuffer:wNextBuf offset:0 atIndex:1];
+        [encoder setBuffer:dCurrBuf offset:0 atIndex:2];
+        [encoder setBytes:&curr_size length:sizeof(int) atIndex:3];
+        [encoder setBytes:&next_size length:sizeof(int) atIndex:4];
+        [encoder setBytes:&batch_size length:sizeof(int) atIndex:5];
+        
+        MTLSize gridSize = MTLSizeMake(batch_size, curr_size, 1);
+        NSUInteger w = backwardInputPipeline.threadExecutionWidth;
+        NSUInteger h = backwardInputPipeline.maxTotalThreadsPerThreadgroup / w;
         MTLSize threadgroupSize = MTLSizeMake(w, h, 1);
         [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadgroupSize];
         [encoder endEncoding];

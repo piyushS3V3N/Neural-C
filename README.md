@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Neural-C</h1>
-  <p><strong>A C-based Deep Neural Network library and visualizer, highly optimized for macOS.</strong></p>
+  <p><strong>A C-based Deep Neural Network library and GAN visualizer, highly optimized for macOS.</strong></p>
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
     <img src="https://img.shields.io/badge/os-macOS-lightgrey.svg" alt="macOS Only">
@@ -20,15 +20,15 @@
 - [Author](#author)
 
 ## About the Project
-Neural-C features a custom multilayer perceptron (MLP) built from scratch in C, and leverages Apple's Metal framework for GPU-accelerated forward propagation. A built-in graphical visualizer allows for real-time monitoring of the network's training process and structure.
+Neural-C features a custom Generative Adversarial Network (GAN) architecture built from scratch in C, and leverages Apple's Metal framework for GPU-accelerated forward and backward propagation. A built-in graphical visualizer allows for real-time monitoring of the networks' adversarial training process and structure.
 
 ## Features
 - **Pure C Neural Network**: Forward and backward propagation implemented in standard C.
-- **Metal GPU Backend**: Computations offloaded to macOS GPU for maximum performance.
-- **Real-time Visualization**: Interactive visualization of weights, biases, and loss history using Raylib.
+- **Metal GPU Backend**: Full training loop (Forward + Backward Pass) offloaded to macOS GPU for maximum performance.
+- **Adversarial (GAN) Architecture**: Two separate networks (Generator and Discriminator) competing and learning simultaneously.
+- **Real-time Dual Visualization**: Interactive UI using Raylib showing data flowing seamlessly between both networks.
 - **Dynamic Feature Extraction**: Real-time evaluation of inputs directly in the UI.
-- **Persistent Memory**: Network weights are automatically saved to and loaded from `brain.bin`, enabling the model to retain knowledge between runs.
-- **Interactive Live-Training**: Correct the model's predictions on the fly by providing feedback (pressing '1' or '0') inside the UI to instantly trigger targeted backpropagation.
+- **Persistent Memory**: Both networks automatically save to and load from persistent weight files (`generator.bin` and `discriminator.bin`), enabling the GAN to retain its knowledge between runs.
 
 ## Screenshots
 <div align="center">
