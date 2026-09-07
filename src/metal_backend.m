@@ -22,11 +22,13 @@ bool init_metal_engine(void) {
     
     // Dynamically compile the shader library at runtime
     NSError *error = nil;
-    NSString *shaderPath = @"shaders.metal";
-    NSString *shaderSource = [NSString stringWithContentsOfFile:shaderPath encoding:NSUTF8StringEncoding error:&error];
+    NSString *shaderSource = [NSString stringWithContentsOfFile:@"shaders/shaders.metal" encoding:NSUTF8StringEncoding error:&error];
+    if (!shaderSource) {
+        shaderSource = [NSString stringWithContentsOfFile:@"shaders.metal" encoding:NSUTF8StringEncoding error:&error];
+    }
     
     if (!shaderSource) {
-        printf("[METAL] ERROR: Failed to load shaders.metal. Ensure it is in the working directory.\n");
+        printf("[METAL] ERROR: Failed to read shaders.metal (checked shaders/shaders.metal and ./shaders.metal).\n");
         return false;
     }
     

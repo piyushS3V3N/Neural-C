@@ -1,0 +1,48 @@
+# Build Binaries & Executables
+/neural_c_llm
+/neural_c_llm_trainer
+/nn_visualizer
+/neural_c_llm_prod
+
+# Test Suite Executables
+/test_tok
+/test_m2
+/test_m3
+/test_m4
+/test_m5
+/test_m6
+/test_m7
+/mock_model.gguf
+
+# Model Checkpoints & Large Model Files (.gguf / .bin)
+*.gguf
+*.bin
+/models/
+model_checkpoint.bin
+custom_llm_model.bin
+
+# Object Files & Compiled Libraries
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.dSYM/
+build/
+
+# macOS / OS Artifacts
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor & IDE Cache Files
+.vscode/
+.idea/
+*.swp
+*~
+*.bak
