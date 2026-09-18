@@ -43,9 +43,9 @@ int main() {
     float q[4] = {1.0f, 0.0f, 1.0f, 0.0f};
     float k[4] = {1.0f, 0.0f, 1.0f, 0.0f};
     apply_rope(q, k, 1, 4, 1, 1, 10000.0f);
-    // After rotation at pos 1, norm of (q0, q1) remains 1.0
-    float q_norm = sqrtf(q[0]*q[0] + q[1]*q[1]);
-    assert(fabsf(q_norm - 1.0f) < 1e-4f);
+    // After half-split rotation at pos 1, norm of paired elements (q[0], q[2]) remains conserved (sqrt(2))
+    float q_norm = sqrtf(q[0]*q[0] + q[2]*q[2]);
+    assert(fabsf(q_norm - sqrtf(2.0f)) < 1e-4f);
     printf("[PASS] Rotary Position Embedding (RoPE) Kernel\n");
 
     // 5. Test Q4_0 Quantized Matrix-Vector Multiplication

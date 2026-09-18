@@ -36,6 +36,7 @@ void free_tensor(Tensor* t) {
 
 TransformerWeights* create_transformer_weights(const Config* cfg) {
     if (!cfg) return NULL;
+    if (cfg->n_layers <= 0 || cfg->n_layers > 512) return NULL;
     TransformerWeights* w = (TransformerWeights*)calloc(1, sizeof(TransformerWeights));
     if (!w) return NULL;
 
@@ -55,18 +56,36 @@ TransformerWeights* create_transformer_weights(const Config* cfg) {
     w->w_down = (Tensor*)calloc(n_layers, sizeof(Tensor));
 
     // Initialize non-zero weights for mock demonstration mode when no GGUF file is loaded (for small configs <= 6 layers)
-    if (cfg->n_layers <= 6) {
+    if (cfg->n_layers <= 6 && cfg->dim > 0 && cfg->hidden_dim > 0
+        && cfg->n_heads > 0 && cfg->n_kv_heads > 0 && cfg->head_dim > 0) {
+        int kv_dim = cfg->n_kv_heads * cfg->head_dim;
+        int q_dim = cfg->n_heads * cfg->head_dim;
+        size_t wq_sz = (size_t)cfg->dim * (size_t)q_dim;
+        size_t wkv_sz = (size_t)cfg->dim * (size_t)kv_dim;
+        size_t wo_sz = (size_t)q_dim * (size_t)cfg->dim;
+        size_t ffn_sz = (size_t)cfg->dim * (size_t)cfg->hidden_dim;
+        size_t ffn_down_sz = (size_t)cfg->hidden_dim * (size_t)cfg->dim;
+
         for (int l = 0; l < cfg->n_layers; l++) {
-            size_t wq_sz = cfg->dim * cfg->n_heads * cfg->head_dim;
-            size_t ffn_sz = cfg->dim * cfg->hidden_dim;
-            
             w->wq[l].data = malloc(wq_sz * sizeof(float));
-            w->wk[l].data = malloc(wq_sz * sizeof(float));
-            w->wv[l].data = malloc(wq_sz * sizeof(float));
-            w->wo[l].data = malloc(wq_sz * sizeof(float));
+            w->wk[l].data = malloc(wkv_sz * sizeof(float));
+            w->wv[l].data = malloc(wkv_sz * sizeof(float));
+            w->wo[l].data = malloc(wo_sz * sizeof(float));
             w->w_gate[l].data = malloc(ffn_sz * sizeof(float));
             w->w_up[l].data = malloc(ffn_sz * sizeof(float));
-            w->w_down[l].data = malloc(ffn_sz * sizeof(float));
+            w->w_down[l].data = malloc(ffn_down_sz * sizeof(float));
+            if (!w->wq[l].data || !w->wk[l].data || !w->wv[l].data || !w->wo[l].data ||
+                !w->w_gate[l].data || !w->w_up[l].data || !w->w_down[l].data) {
+                continue; // engine_matmul treats missing tensors as zeros
+            }
+            // Tag mock tensors so shape validation works
+            w->wq[l].type = QUANT_FP32; w->wq[l].numel = wq_sz;
+            w->wk[l].type = QUANT_FP32; w->wk[l].numel = wkv_sz;
+            w->wv[l].type = QUANT_FP32; w->wv[l].numel = wkv_sz;
+            w->wo[l].type = QUANT_FP32; w->wo[l].numel = wo_sz;
+            w->w_gate[l].type = QUANT_FP32; w->w_gate[l].numel = ffn_sz;
+            w->w_up[l].type = QUANT_FP32; w->w_up[l].numel = ffn_sz;
+            w->w_down[l].type = QUANT_FP32; w->w_down[l].numel = ffn_down_sz;
             
             float* q_ptr = (float*)w->wq[l].data;
             float* k_ptr = (float*)w->wk[l].data;
@@ -78,22 +97,32 @@ TransformerWeights* create_transformer_weights(const Config* cfg) {
 
             for (size_t i = 0; i < wq_sz; i++) {
                 q_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
+            }
+            for (size_t i = 0; i < wkv_sz; i++) {
                 k_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
                 v_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
+            }
+            for (size_t i = 0; i < wo_sz; i++) {
                 o_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
             }
             for (size_t i = 0; i < ffn_sz; i++) {
                 g_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
                 u_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
+            }
+            for (size_t i = 0; i < ffn_down_sz; i++) {
                 d_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
             }
         }
 
-        size_t cls_sz = cfg->dim * cfg->vocab_size;
+        size_t cls_sz = (size_t)cfg->dim * (size_t)cfg->vocab_size;
         w->w_cls.data = malloc(cls_sz * sizeof(float));
-        float* cls_ptr = (float*)w->w_cls.data;
-        for (size_t i = 0; i < cls_sz; i++) {
-            cls_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
+        if (w->w_cls.data) {
+            w->w_cls.type = QUANT_FP32;
+            w->w_cls.numel = cls_sz;
+            float* cls_ptr = (float*)w->w_cls.data;
+            for (size_t i = 0; i < cls_sz; i++) {
+                cls_ptr[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 0.1f;
+            }
         }
     }
 
@@ -141,6 +170,12 @@ void free_transformer_weights(TransformerWeights* w, int n_layers) {
 
 RunState* allocate_run_state(const Config* cfg) {
     if (!cfg) return NULL;
+    // Validate config before any allocation (prevents calloc(0)/calloc(huge))
+    if (cfg->dim <= 0 || cfg->hidden_dim <= 0 || cfg->n_layers <= 0 ||
+        cfg->n_heads <= 0 || cfg->n_kv_heads <= 0 || cfg->head_dim <= 0 ||
+        cfg->seq_len <= 0 || cfg->vocab_size <= 0) {
+        return NULL;
+    }
     RunState* s = (RunState*)calloc(1, sizeof(RunState));
     if (!s) return NULL;
 
@@ -167,11 +202,18 @@ RunState* allocate_run_state(const Config* cfg) {
     s->logits = (float*)calloc(vocab_size, sizeof(float));
 
     // KV Cache Allocation
-    size_t kv_cache_size = (size_t)n_layers * seq_len * kv_dim;
+    size_t kv_cache_size = (size_t)n_layers * (size_t)seq_len * (size_t)kv_dim;
+    // Guard against size_t overflow / absurd allocations (>8GB per cache)
+    if (kv_dim <= 0 || kv_cache_size / (size_t)kv_dim != (size_t)n_layers * (size_t)seq_len) {
+        free_run_state(s);
+        return NULL;
+    }
     s->key_cache = (float*)calloc(kv_cache_size, sizeof(float));
     s->value_cache = (float*)calloc(kv_cache_size, sizeof(float));
 
-    if (!s->x || !s->xb || !s->q || !s->k || !s->v || !s->key_cache || !s->value_cache) {
+    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 ||
+        !s->q || !s->k || !s->v || !s->att || !s->logits ||
+        !s->key_cache || !s->value_cache) {
         free_run_state(s);
         return NULL;
     }

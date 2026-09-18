@@ -21,8 +21,18 @@ int main(int argc, char** argv) {
     const char* model_path = (argc > 1) ? argv[1] : (access(default_model, F_OK) == 0 ? default_model : NULL);
     const char* prompt = (argc > 2) ? argv[2] : "Write a C function to compute Fibonacci numbers.";
     float temperature = (argc > 3) ? (float)atof(argv[3]) : 0.7f;
-    float top_p = 0.9f;
-    int max_tokens = 64;
+    float top_p = (argc > 4) ? (float)atof(argv[4]) : 0.9f;
+    int max_tokens = (argc > 5) ? atoi(argv[5]) : 256;
+    float repeat_penalty = (argc > 6) ? (float)atof(argv[6]) : 1.1f;
+    int use_chat = (argc > 7) ? atoi(argv[7]) : -1; // -1 = auto
+    if (max_tokens <= 0) max_tokens = 256;
+    if (max_tokens > 2048) max_tokens = 2048;
+    if (!(repeat_penalty >= 1.0f)) repeat_penalty = 1.0f;
+    if (repeat_penalty > 2.0f) repeat_penalty = 2.0f;
+    if (use_chat == -1) {
+        // Auto: instruct-tuned files expect the chat template; base files don't.
+        use_chat = (model_path && (strstr(model_path, "instruct") || strstr(model_path, "it-"))) ? 1 : 0;
+    }
 
     Config cfg = {
         .dim = 288,
@@ -78,6 +88,10 @@ int main(int argc, char** argv) {
         load_gguf_weights(gguf_ctx, weights);
     }
     bool gpu_available = init_llm_metal_engine();
+    if (getenv("NEURAL_C_CPU")) {
+        printf("[ENGINE] NEURAL_C_CPU set: forcing CPU fallback (GPU divergence check)\n");
+        gpu_available = false;
+    }
 
     TransformerEngine* engine = create_transformer_engine(&cfg, tokenizer, weights, gpu_available);
     if (!engine) {
@@ -87,8 +101,76 @@ int main(int argc, char** argv) {
 
     printf("[ENGINE] Metal GPU Mode: %s (%s)\n", engine->use_gpu ? "ACTIVE" : "CPU FALLBACK", get_llm_metal_device_name());
 
+    // NEURAL_C_SELFTEST=1: patch verifier. Runs a fixed probe through the
+    // GPU engine and a fresh CPU engine, compares final logits, checks
+    // determinism, exits. No eyeballing two runs.
+    if (getenv("NEURAL_C_SELFTEST")) {
+        const char* probe = "def fibonacci(n):";
+        int pt[64];
+        int npt = encode(tokenizer, probe, tokenizer->add_bos_token, false, pt, 64);
+        printf("[SELFTEST] probe tokens: %d\n", npt);
+        TransformerEngine* cpu = create_transformer_engine(&cfg, tokenizer, weights, false);
+        if (!cpu) { printf("[SELFTEST] FAIL: cpu engine alloc\n"); return 2; }
+        float *lg = NULL, *lc = NULL, *lc2 = NULL;
+        for (int i = 0; i < npt; i++) {
+            lg = transformer_forward(engine, pt[i], i);
+            lc = transformer_forward(cpu, pt[i], i);
+        }
+        // determinism: replay probe on cpu from scratch
+        TransformerEngine* cpu2 = create_transformer_engine(&cfg, tokenizer, weights, false);
+        if (cpu2) {
+            for (int i = 0; i < npt; i++) lc2 = transformer_forward(cpu2, pt[i], i);
+        }
+        int V = cfg.vocab_size;
+        double maxdg = 0, sumdg = 0, maxdd = 0;
+        if (lg && lc) {
+            for (int i = 0; i < V; i++) {
+                double d = fabs((double)lg[i] - (double)lc[i]);
+                if (d > maxdg) maxdg = d;
+                sumdg += d;
+            }
+        }
+        if (lc && lc2) {
+            for (int i = 0; i < V; i++) {
+                double d = fabs((double)lc[i] - (double)lc2[i]);
+                if (d > maxdd) maxdd = d;
+            }
+        }
+        printf("[SELFTEST] cpu/gpu max|dlogit|=%.6f mean=%.6f\n", maxdg, sumdg / (V > 0 ? V : 1));
+        printf("[SELFTEST] cpu/cpu determinism max|d|=%.9f %s\n", maxdd, maxdd == 0.0 ? "(bit-identical)" : "(NONDETERMINISTIC!)");
+        for (int side = 0; side < 2; side++) {
+            float* L = side ? lc : lg;
+            if (!L) continue;
+            float* cp = (float*)malloc((size_t)V * sizeof(float));
+            if (!cp) continue;
+            memcpy(cp, L, (size_t)V * sizeof(float));
+            softmax(cp, V);
+            printf("[SELFTEST] top5 %s:", side ? "cpu" : "gpu");
+            for (int k = 0; k < 5; k++) {
+                int bi = 0; float bp = -1;
+                for (int i = 0; i < V; i++) if (cp[i] > bp) { bp = cp[i]; bi = i; }
+                const char* s = decode(tokenizer, -1, bi);
+                printf(" (%d %.3f '%s')", bi, bp, s ? s : "?");
+                cp[bi] = -1;
+            }
+            printf("\n");
+            free(cp);
+        }
+        printf("[SELFTEST] verdict: %s\n", maxdg < 1e-2 ? "MATCH (gpu math ok, look at sampling/data)" : "DIVERGED (metal/host bug, paste this block)");
+        free_transformer_engine(cpu);
+        if (cpu2) free_transformer_engine(cpu2);
+        if (gguf_ctx) close_gguf_file(gguf_ctx);
+        free_transformer_engine(engine);
+        free_transformer_weights(weights, cfg.n_layers);
+        free_tokenizer(tokenizer);
+        return 0;
+    }
+
+    printf("[DECODE] temp=%.2f top_p=%.2f max_tokens=%d repeat_penalty=%.2f chat_template=%s\n",
+        temperature, top_p, max_tokens, repeat_penalty, use_chat ? "ON" : "OFF");
+
     // Execute Auto-Regressive Generation Stream
-    generate_text_stream(engine, prompt, max_tokens, temperature, top_p);
+    generate_text_stream_ex(engine, prompt, max_tokens, temperature, top_p, repeat_penalty, 64, use_chat);
 
     // Cleanup
     if (gguf_ctx) close_gguf_file(gguf_ctx);

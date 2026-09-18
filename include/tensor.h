@@ -12,7 +12,8 @@ typedef enum {
     QUANT_FP16 = 1,
     QUANT_Q8_0 = 2,
     QUANT_Q4_0 = 3,
-    QUANT_Q4_K = 4
+    QUANT_Q4_K = 4,
+    QUANT_Q6_K = 5
 } QuantType;
 
 typedef struct {

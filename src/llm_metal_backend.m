@@ -76,8 +76,8 @@ static id<MTLBuffer> get_cached_buffer(const void* ptr, size_t length, bool copy
 
 void metal_gemv_q4_0(float* out, const float* x, const BlockQ4_0* w_q4, int in_dim, int out_dim) {
     if (!out) return;
-    if (!w_q4 || !x || in_dim <= 0 || out_dim <= 0) {
-        memset(out, 0, out_dim * sizeof(float));
+    if (!w_q4 || !x || in_dim <= 0 || out_dim <= 0 || in_dim % 32 != 0) {
+        if (out_dim > 0) memset(out, 0, out_dim * sizeof(float));
         return;
     }
     @autoreleasepool {
@@ -85,7 +85,7 @@ void metal_gemv_q4_0(float* out, const float* x, const BlockQ4_0* w_q4, int in_d
             matmul_q4_0(out, x, w_q4, in_dim, out_dim);
             return;
         }
-        
+
         size_t blocks_per_row = in_dim / 32;
         size_t w_size_bytes = out_dim * blocks_per_row * sizeof(BlockQ4_0);
         
@@ -123,8 +123,8 @@ void metal_gemv_q4_0(float* out, const float* x, const BlockQ4_0* w_q4, int in_d
 
 void metal_gemv_q8_0(float* out, const float* x, const BlockQ8_0* w_q8, int in_dim, int out_dim) {
     if (!out) return;
-    if (!w_q8 || !x || in_dim <= 0 || out_dim <= 0) {
-        memset(out, 0, out_dim * sizeof(float));
+    if (!w_q8 || !x || in_dim <= 0 || out_dim <= 0 || in_dim % 32 != 0) {
+        if (out_dim > 0) memset(out, 0, out_dim * sizeof(float));
         return;
     }
     @autoreleasepool {
